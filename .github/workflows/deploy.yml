@@ -2,7 +2,7 @@ name: Deploy Express to EC2 (PM2 id 0)
 
 on:
   push:
-    branches: [ "main" ]   # change if you deploy from a different branch
+    branches: [ "main" ]
   workflow_dispatch: {}
 
 jobs:
@@ -35,23 +35,19 @@ jobs:
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
 
-      - name: Load SSH key
-        uses: webfactory/ssh-agent@v0.9.1
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Deploy to EC2
+      - name: Deploy to EC2 (SSH)
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
+          # pass the key DIRECTLY here:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
-          envs: GITHUB_REF_NAME
+          envs: GITHUB_REF_NAME,EC2_PATH
           script: |
             set -e
-            cd "${{ secrets.EC2_PATH }}"
+            cd "${EC2_PATH}"
 
-            # Sync to the exact pushed branch/commit
             BRANCH="${GITHUB_REF_NAME:-main}"
             echo "Deploying branch: $BRANCH"
             git fetch --all --prune
@@ -64,12 +60,12 @@ jobs:
               npm install --omit=dev
             fi
 
-            # Optional: build if you transpile/bundle
+            # Optional build
             if [ -f tsconfig.json ] || [ -f webpack.config.js ]; then
               npm run build || true
             fi
 
-            # Reload PM2 by process ID 0; fallback to start index.js
+            # Reload PM2 by process ID 0; fallback to start
             if pm2 describe 0 >/dev/null 2>&1; then
               echo "Reloading PM2 process id 0"
               pm2 reload 0
@@ -80,4 +76,5 @@ jobs:
 
             pm2 save
         env:
+          EC2_PATH: ${{ secrets.EC2_PATH }}
           GITHUB_REF_NAME: ${{ github.ref_name }}

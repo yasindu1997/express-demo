@@ -40,13 +40,30 @@ jobs:
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
-          # pass the key DIRECTLY here:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
           envs: GITHUB_REF_NAME,EC2_PATH
           script: |
             set -e
             cd "${EC2_PATH}"
+
+            # --- Load Node if installed via nvm (non-login shell) ---
+            if [ -d "$HOME/.nvm" ]; then
+              export NVM_DIR="$HOME/.nvm"
+              [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+              [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+              # pick a version; adjust if you use a different one
+              nvm use --lts || nvm use 20 || true
+            fi
+
+            # Fallback: add common binary paths in case node/npm live there
+            export PATH="$PATH:/usr/local/bin:/usr/bin:$HOME/bin"
+
+            # Sanity check
+            if ! command -v npm >/dev/null 2>&1; then
+              echo "ERROR: npm not found in PATH. Install Node (Option A) or ensure nvm is installed for this user."
+              exit 127
+            fi
 
             BRANCH="${GITHUB_REF_NAME:-main}"
             echo "Deploying branch: $BRANCH"
@@ -60,9 +77,14 @@ jobs:
               npm install --omit=dev
             fi
 
-            # Optional build
+            # Optional build (safe no-op if not present)
             if [ -f tsconfig.json ] || [ -f webpack.config.js ]; then
               npm run build || true
+            fi
+
+            # Ensure pm2 exists (global under nvm is fine)
+            if ! command -v pm2 >/dev/null 2>&1; then
+              npm i -g pm2
             fi
 
             # Reload PM2 by process ID 0; fallback to start

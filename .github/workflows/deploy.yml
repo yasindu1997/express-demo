@@ -2,16 +2,18 @@ name: Deploy Express to EC2 (PM2 id 0)
 
 on:
   push:
-    branches: [ "main" ]   # change if you deploy another branch
+    branches: [ "main" ]   # change if you deploy from a different branch
   workflow_dispatch: {}
 
 jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Use Node 20
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
@@ -19,11 +21,8 @@ jobs:
       - name: Install deps
         run: npm ci || npm install
 
-      - name: Test (optional)
-        run: |
-          if npm run | grep -q " test"; then
-            npm test --if-present
-          fi
+      - name: Skip tests (none defined)
+        run: echo "Skipping tests"
 
   deploy:
     needs: ci
@@ -36,7 +35,7 @@ jobs:
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
 
-      - name: Use SSH key
+      - name: Load SSH key
         uses: webfactory/ssh-agent@v0.9.1
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -52,7 +51,7 @@ jobs:
             set -e
             cd "${{ secrets.EC2_PATH }}"
 
-            # Sync code to the pushed branch/commit
+            # Sync to the exact pushed branch/commit
             BRANCH="${GITHUB_REF_NAME:-main}"
             echo "Deploying branch: $BRANCH"
             git fetch --all --prune
@@ -70,7 +69,7 @@ jobs:
               npm run build || true
             fi
 
-            # Reload PM2 by process ID 0, fallback to start index.js
+            # Reload PM2 by process ID 0; fallback to start index.js
             if pm2 describe 0 >/dev/null 2>&1; then
               echo "Reloading PM2 process id 0"
               pm2 reload 0

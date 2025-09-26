@@ -1,0 +1,84 @@
+name: Deploy Express to EC2 (PM2 id 0)
+
+on:
+  push:
+    branches: [ "main" ]   # change if you deploy another branch
+  workflow_dispatch: {}
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci || npm install
+
+      - name: Test (optional)
+        run: |
+          if npm run | grep -q " test"; then
+            npm test --if-present
+          fi
+
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add EC2 host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+
+      - name: Use SSH key
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          script_stop: true
+          envs: GITHUB_REF_NAME
+          script: |
+            set -e
+            cd "${{ secrets.EC2_PATH }}"
+
+            # Sync code to the pushed branch/commit
+            BRANCH="${GITHUB_REF_NAME:-main}"
+            echo "Deploying branch: $BRANCH"
+            git fetch --all --prune
+            git reset --hard "origin/$BRANCH"
+
+            # Install production deps only
+            if [ -f package-lock.json ]; then
+              npm ci --omit=dev
+            else
+              npm install --omit=dev
+            fi
+
+            # Optional: build if you transpile/bundle
+            if [ -f tsconfig.json ] || [ -f webpack.config.js ]; then
+              npm run build || true
+            fi
+
+            # Reload PM2 by process ID 0, fallback to start index.js
+            if pm2 describe 0 >/dev/null 2>&1; then
+              echo "Reloading PM2 process id 0"
+              pm2 reload 0
+            else
+              echo "PM2 id 0 not found; starting index.js"
+              pm2 start index.js --name express-app
+            fi
+
+            pm2 save
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}

@@ -46,7 +46,7 @@ app.put("/items/:id", (req, res) => {
     return res.status(400).json({ error: "Field 'name' (string) is required" });
   }
   const idx = items.findIndex(i => i.id === id);
-  if (idx === -1) return res.status(404).json({ error: "Item not found" });
+  if (idx === -1) return res.status(404).json({ error: "Item not found !" });
 
   items[idx] = { ...items[idx], name };
   res.json(items[idx]);
